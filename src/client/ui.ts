@@ -77,6 +77,7 @@ export class UI {
   private readonly dialogTitle = byId<HTMLElement>("dialogTitle");
   private readonly dialogBody = byId<HTMLElement>("dialogBody");
   private readonly dialogActions = byId<HTMLElement>("dialogActions");
+  private readonly dialogForm = byId<HTMLFormElement>("dialogForm");
   private readonly refreshBoardBtn = byId<HTMLButtonElement>("refreshBoardBtn");
 
   private activeLevelIndex = 0;
@@ -447,6 +448,11 @@ export class UI {
       this.dialog.oncancel = (event) => {
         event.preventDefault();
         finish("cancel");
+      };
+      this.dialogForm.onsubmit = (event) => {
+        event.preventDefault();
+        const primary = options.actions.find((action) => action.primary);
+        finish((primary ?? options.actions[options.actions.length - 1])?.value ?? "cancel");
       };
       this.dialog.showModal();
       window.setTimeout(() => {

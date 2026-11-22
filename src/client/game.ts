@@ -582,6 +582,7 @@ export class Game {
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {
+    if (document.querySelector("dialog[open]")) return;
     const target = event.target as HTMLElement | null;
     if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
 
