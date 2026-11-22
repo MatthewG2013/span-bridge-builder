@@ -10,12 +10,6 @@ import { LEVELS } from "../public/js/shared/levels.js";
 import { buildCost } from "../public/js/shared/materials.js";
 
 const level = LEVELS[0];
-const anchors = level.anchors.map((anchor) => ({
-  id: anchor.id,
-  x: anchor.x,
-  y: anchor.y,
-  pinned: true,
-}));
 
 const node = (id, x, y) => ({ id, x, y });
 const beam = (id, a, b, material) => ({ id, a, b, material });
@@ -51,11 +45,17 @@ const truss = {
   ],
 };
 
-function withAnchors(build) {
-  return { nodes: [...anchors, ...build.nodes], beams: build.beams.map((item) => ({ ...item })) };
+function withAnchors(build, targetLevel = level) {
+  const targetAnchors = targetLevel.anchors.map((anchor) => ({
+    id: anchor.id,
+    x: anchor.x,
+    y: anchor.y,
+    pinned: true,
+  }));
+  return { nodes: [...targetAnchors, ...build.nodes], beams: build.beams.map((item) => ({ ...item })) };
 }
 
-function simulate(build, seconds = 12) {
+function simulate(build, seconds = 12, targetLevel = level) {
   const sim = new BridgeSimulation(build);
   let travelled = 0;
   let maxStress = 0;
@@ -63,12 +63,12 @@ function simulate(build, seconds = 12) {
   let success = false;
   let failure = null;
 
-  const initial = sim.activeRoadPath(level.startAnchorId, level.endAnchorId);
+  const initial = sim.activeRoadPath(targetLevel.startAnchorId, targetLevel.endAnchorId);
   if (!initial) return { success, failure: "no initial path", maxStress, broken };
 
   for (let frame = 0; frame < 120 * seconds; frame += 1) {
     const dt = 1 / 120;
-    const path = sim.activeRoadPath(level.startAnchorId, level.endAnchorId);
+    const path = sim.activeRoadPath(targetLevel.startAnchorId, targetLevel.endAnchorId);
     if (!path) {
       failure = "path lost";
       break;
@@ -110,10 +110,29 @@ test("road pathfinding follows connected road beams only", () => {
   assert.ok(path);
   assert.equal(path.nodeIds.length, 5);
   assert.equal(path.beamIds.length, 4);
+  assert.equal(sim.isPathIntact(path), true);
 
   const broken = new BridgeSimulation(build);
   broken.beams.find((item) => item.id === "r2").broken = true;
   assert.equal(broken.activeRoadPath(level.startAnchorId, level.endAnchorId), null);
+  assert.equal(broken.isPathIntact(path), false);
+});
+
+test("solver exposes bounded adaptive iterations", () => {
+  const sim = new BridgeSimulation(withAnchors(truss));
+  for (let i = 0; i < 60; i += 1) sim.step(1 / 120);
+  assert.ok(sim.lastIterations > 0);
+  assert.ok(sim.lastIterations <= 10);
+  assert.ok(sim.lastResidual >= 0);
+});
+
+test("beams record separate tension and compression limits", () => {
+  const sim = new BridgeSimulation(withAnchors(truss));
+  for (const beam of sim.beams) {
+    assert.ok(beam.tensionLimit > 0);
+    assert.ok(beam.compressionLimit > 0);
+    assert.ok(Math.abs(beam.axial) <= 1);
+  }
 });
 
 test("findRoadPath ignores structural-only connections", () => {
@@ -148,4 +167,60 @@ test("triangulated wood truss carries the truck across", () => {
   assert.equal(result.success, true, `failure=${result.failure}, stress=${result.maxStress}`);
   assert.equal(result.broken, 0);
   assert.ok(result.maxStress < 1.1, `stress too close to breaking: ${result.maxStress}`);
+});
+
+test("central pillar support carries the level 2 span", () => {
+  const target = LEVELS[1];
+  const nodes = [];
+  const beams = [];
+  let previous = "anchor-left";
+  for (let i = 1, x = 312; x < 1014; x += 82, i += 1) {
+    nodes.push(node(`d${i}`, x, 372));
+    beams.push(beam(`r${i}`, previous, `d${i}`, "road"));
+    previous = `d${i}`;
+  }
+  beams.push(beam("r10", previous, "anchor-right", "road"));
+  for (const [index, id] of ["d4", "d5", "d6"].entries()) {
+    beams.push(beam(`s${index}`, "anchor-mid", id, "wood"));
+  }
+  const build = withAnchors({ nodes, beams }, target);
+  const cost = buildCost(build);
+  assert.ok(cost <= target.budget);
+  const result = simulate(build, 18, target);
+  assert.equal(result.success, true, `failure=${result.failure}, stress=${result.maxStress}`);
+});
+
+test("steel top chord carries the level 3 super-span", () => {
+  const target = LEVELS[2];
+  const nodes = [];
+  const beams = [];
+  let previous = "anchor-left";
+  const deck = [];
+  for (let i = 1, x = 310; x < 1040; x += 110, i += 1) {
+    nodes.push(node(`d${i}`, x, 372));
+    beams.push(beam(`r${i}`, previous, `d${i}`, "road"));
+    previous = `d${i}`;
+    deck.push(`d${i}`);
+  }
+  beams.push(beam(`r${deck.length + 1}`, previous, "anchor-right", "road"));
+  for (let i = 1; i <= deck.length; i += 1) {
+    nodes.push(node(`t${i}`, 310 + (i - 1) * 110, 282));
+  }
+  for (let i = 0; i < deck.length - 1; i += 1) {
+    beams.push(beam(`tc${i}`, `t${i + 1}`, `t${i + 2}`, "steel"));
+  }
+  for (let i = 0; i < deck.length; i += 1) {
+    beams.push(beam(`v${i}`, `d${i + 1}`, `t${i + 1}`, "wood"));
+  }
+  for (let i = 0; i < deck.length - 1; i += 1) {
+    beams.push(beam(`x${i}`, `t${i + 1}`, `d${i + 2}`, "wood"));
+  }
+  beams.push(beam("xa", "anchor-left", "t1", "wood"));
+  beams.push(beam("xb", `t${deck.length}`, "anchor-right", "wood"));
+
+  const build = withAnchors({ nodes, beams }, target);
+  const cost = buildCost(build);
+  assert.ok(cost <= target.budget);
+  const result = simulate(build, 20, target);
+  assert.equal(result.success, true, `failure=${result.failure}, stress=${result.maxStress}`);
 });

@@ -138,7 +138,7 @@ async function handleApi(
     sendJson(response, 200, {
       ok: true,
       name: "SPAN Bridge Lab",
-      version: "0.1.0",
+      version: "0.2.0",
       time: new Date().toISOString(),
       storage: store.stats(),
     });

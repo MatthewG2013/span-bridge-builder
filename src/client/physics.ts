@@ -1,6 +1,14 @@
 import type { Build, BuildBeam, BuildNode, MaterialId, Vec2 } from "../shared/types.js";
 import { MATERIALS } from "../shared/materials.js";
 
+export interface RoadBeam {
+  id: string;
+  a: string;
+  b: string;
+  material: MaterialId;
+  broken: boolean;
+}
+
 export interface SimNode extends BuildNode {
   x: number;
   y: number;
@@ -9,22 +17,26 @@ export interface SimNode extends BuildNode {
   loadX: number;
   loadY: number;
   mass: number;
+  invMass: number;
   pinned: boolean;
 }
 
-export interface SimBeam {
-  id: string;
-  a: string;
-  b: string;
-  material: MaterialId;
+export interface SimBeam extends RoadBeam {
+  nodeA: SimNode;
+  nodeB: SimNode;
   rest: number;
   stiffness: number;
-  breakStrain: number;
-  broken: boolean;
+  tensionLimit: number;
+  compressionLimit: number;
+  /** Smoothed stress ratio for rendering (0 safe, 1 near breaking). */
   stress: number;
-  overload: number;
-  firstStrain: number;
+  /** Signed load direction: negative compression, positive tension. */
+  axial: number;
+  damage: number;
+  sampledStrain: number;
+  sampledSignedStrain: number;
   finalStrain: number;
+  peakStress: number;
 }
 
 export interface RoadPath {
@@ -43,25 +55,38 @@ export interface StepResult {
   broken: SimBeam[];
   maxStress: number;
   outOfBounds: boolean;
+  iterations: number;
 }
 
 const GRAVITY = 1350;
-const CONSTRAINT_ITERATIONS = 9;
+const MIN_ITERATIONS = 4;
+const MAX_ITERATIONS = 10;
+const SOLVER_TOLERANCE = 0.12;
 const DAMPING = 0.9985;
 const MAX_SPEED = 16;
+const MAX_CORRECTION = 0.9;
 const MAX_STRAIN_SAMPLE = 4;
+const COLLAPSE_X_MIN = -240;
+const COLLAPSE_X_MAX = 1520;
+const COLLAPSE_Y_MAX = 940;
 
 /**
- * Position-based bridge solver. Nodes are particles; beams are stiff distance
- * constraints. Stress is sampled from the first solver iteration each frame,
- * which reflects the strain introduced by gravity and the moving truck before
- * the constraints pull the structure back into shape.
+ * Position-based bridge solver.
+ *
+ * Two properties matter for feel and performance:
+ * - beams hold direct references to their end nodes, so the hot constraint loop
+ *   does not touch a Map;
+ * - iteration count adapts to residual error, which keeps stable bridges cheap
+ *   while still spending extra iterations on heavily loaded spans.
  */
 export class BridgeSimulation {
   readonly nodes = new Map<string, SimNode>();
   readonly beams: SimBeam[] = [];
+  readonly beamById = new Map<string, SimBeam>();
   readonly brokenBeams: SimBeam[] = [];
   time = 0;
+  lastIterations = 0;
+  lastResidual = 0;
 
   constructor(build: Build) {
     for (const source of build.nodes) {
@@ -74,36 +99,45 @@ export class BridgeSimulation {
         loadX: 0,
         loadY: 0,
         mass: 0.5,
+        invMass: 2,
         pinned: Boolean(source.pinned),
       };
       this.nodes.set(node.id, node);
     }
 
     for (const source of build.beams) {
-      const a = this.nodes.get(source.a);
-      const b = this.nodes.get(source.b);
-      if (!a || !b) continue;
+      const nodeA = this.nodes.get(source.a);
+      const nodeB = this.nodes.get(source.b);
+      if (!nodeA || !nodeB) continue;
       const material = MATERIALS[source.material];
-      const rest = Math.hypot(b.x - a.x, b.y - a.y);
+      const rest = Math.hypot(nodeB.x - nodeA.x, nodeB.y - nodeA.y);
       if (rest < 1) continue;
       const beam: SimBeam = {
         ...source,
+        nodeA,
+        nodeB,
         rest,
-        stiffness: 0.55 + material.stiffness * 0.42,
-        breakStrain: material.breakStrain,
+        stiffness: 0.68 + material.stiffness * 0.3,
+        tensionLimit: material.tensionLimit,
+        compressionLimit: material.compressionLimit,
         broken: false,
         stress: 0,
-        overload: 0,
-        firstStrain: 0,
+        axial: 0,
+        damage: 0,
+        sampledStrain: 0,
+        sampledSignedStrain: 0,
         finalStrain: 0,
+        peakStress: 0,
       };
       this.beams.push(beam);
-      a.mass += rest * material.density * 0.5;
-      b.mass += rest * material.density * 0.5;
+      this.beamById.set(beam.id, beam);
+      nodeA.mass += rest * material.density * 0.5;
+      nodeB.mass += rest * material.density * 0.5;
     }
 
     for (const node of this.nodes.values()) {
       node.mass = Math.min(12, Math.max(0.55, node.mass));
+      node.invMass = node.pinned ? 0 : 1 / node.mass;
     }
   }
 
@@ -115,7 +149,13 @@ export class BridgeSimulation {
     const clampedDt = Math.min(dt, 1 / 30);
     this.time += clampedDt;
     const dt2 = clampedDt * clampedDt;
-    const firstStrains = new Map<string, number>();
+
+    for (const beam of this.beams) {
+      if (!beam.broken) {
+        beam.sampledStrain = 0;
+        beam.sampledSignedStrain = 0;
+      }
+    }
 
     for (const node of this.nodes.values()) {
       if (node.pinned) {
@@ -131,10 +171,8 @@ export class BridgeSimulation {
       node.prevX = node.x;
       node.prevY = node.y;
 
-      const ax = node.loadX;
-      const ay = GRAVITY + node.loadY;
-      node.x += vx + ax * dt2;
-      node.y += vy + ay * dt2;
+      node.x += vx + node.loadX * dt2;
+      node.y += vy + (GRAVITY + node.loadY) * dt2;
 
       node.loadX = 0;
       node.loadY = 0;
@@ -146,40 +184,53 @@ export class BridgeSimulation {
         node.prevY = node.y;
       }
 
-      // Keep runaway simulation inside a broad sandbox.
-      node.x = clamp(node.x, -240, 1520);
-      node.y = clamp(node.y, -420, 940);
+      node.x = clamp(node.x, COLLAPSE_X_MIN, COLLAPSE_X_MAX);
+      node.y = clamp(node.y, -420, COLLAPSE_Y_MAX);
     }
 
-    for (let iteration = 0; iteration < CONSTRAINT_ITERATIONS; iteration += 1) {
+    let iterations = 0;
+    let residualAtExit = 0;
+    for (; iterations < MAX_ITERATIONS; iterations += 1) {
+      let maxResidual = 0;
       for (const beam of this.beams) {
         if (beam.broken) continue;
-        const a = this.nodes.get(beam.a);
-        const b = this.nodes.get(beam.b);
-        if (!a || !b) continue;
-
+        const a = beam.nodeA;
+        const b = beam.nodeB;
         const dx = b.x - a.x;
         const dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy);
+        const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 0.0001) continue;
 
         const strain = (dist - beam.rest) / beam.rest;
-        if (iteration === 0) {
-          firstStrains.set(beam.id, Math.min(Math.abs(strain), MAX_STRAIN_SAMPLE));
+        if (iterations === 0) {
+          beam.sampledSignedStrain = strain;
+          beam.sampledStrain = Math.min(Math.abs(strain), MAX_STRAIN_SAMPLE);
         }
 
-        const invA = a.pinned ? 0 : 1 / a.mass;
-        const invB = b.pinned ? 0 : 1 / b.mass;
-        const invSum = invA + invB;
+        const invSum = a.invMass + b.invMass;
         if (invSum === 0) continue;
 
-        const correction = ((dist - beam.rest) / dist) * beam.stiffness;
-        a.x += dx * correction * (invA / invSum);
-        a.y += dy * correction * (invA / invSum);
-        b.x -= dx * correction * (invB / invSum);
-        b.y -= dy * correction * (invB / invSum);
+        const residual = Math.abs(dist - beam.rest);
+        if (residual > maxResidual) maxResidual = residual;
+
+        const rawCorrection = ((dist - beam.rest) / dist) * beam.stiffness;
+        const correction = clamp(rawCorrection, -MAX_CORRECTION, MAX_CORRECTION);
+        const wa = (a.invMass / invSum) * correction;
+        const wb = (b.invMass / invSum) * correction;
+        a.x += dx * wa;
+        a.y += dy * wa;
+        b.x -= dx * wb;
+        b.y -= dy * wb;
+      }
+
+      residualAtExit = maxResidual;
+      if (iterations + 1 >= MIN_ITERATIONS && maxResidual < SOLVER_TOLERANCE) {
+        iterations += 1;
+        break;
       }
     }
+    this.lastIterations = iterations;
+    this.lastResidual = residualAtExit;
 
     const newlyBroken: SimBeam[] = [];
     let maxStress = 0;
@@ -187,44 +238,53 @@ export class BridgeSimulation {
 
     for (const beam of this.beams) {
       if (beam.broken) continue;
-      const a = this.nodes.get(beam.a);
-      const b = this.nodes.get(beam.b);
-      if (!a || !b) continue;
+      const a = beam.nodeA;
+      const b = beam.nodeB;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const finalSigned = (dist - beam.rest) / beam.rest;
+      const finalAbs = Math.abs(finalSigned);
+      const sampledSigned = Math.abs(beam.sampledSignedStrain) > finalAbs * 0.45
+        ? beam.sampledSignedStrain
+        : finalSigned;
+      const sampledAbs = Math.max(beam.sampledStrain, finalAbs * 0.45);
+      const limit = sampledSigned >= 0 ? beam.tensionLimit : beam.compressionLimit;
+      const ratio = sampledAbs / limit;
 
-      const dist = Math.hypot(b.x - a.x, b.y - a.y);
-      const finalStrain = Math.abs((dist - beam.rest) / beam.rest);
-      const first = firstStrains.get(beam.id) ?? 0;
-      const sampled = Math.max(first, finalStrain * 0.45);
-      const ratio = sampled / beam.breakStrain;
-
-      beam.firstStrain = first;
-      beam.finalStrain = finalStrain;
-      beam.stress += (Math.min(ratio, 2.4) - beam.stress) * 0.34;
+      beam.finalStrain = finalSigned;
+      beam.peakStress = Math.max(beam.peakStress, ratio);
+      beam.stress += (Math.min(ratio, 2.8) - beam.stress) * 0.32;
+      beam.axial += ((sampledSigned >= 0 ? 1 : -1) * Math.min(1, ratio) - beam.axial) * 0.3;
       maxStress = Math.max(maxStress, beam.stress);
 
       if (ratio > 1) {
-        beam.overload += clampedDt * 60 * (0.55 + (ratio - 1) * 2.5);
-        if (beam.overload > 5.5 || ratio > 2.4) {
+        beam.damage += clampedDt * 60 * (0.35 + (ratio - 1) * 2.35);
+        if (beam.damage > 7.5 || ratio > 3.1) {
           beam.broken = true;
-          beam.stress = 1.6;
+          beam.stress = 1.7;
           newlyBroken.push(beam);
           this.brokenBeams.push(beam);
         }
       } else {
-        beam.overload = Math.max(0, beam.overload - clampedDt * 90);
+        beam.damage = Math.max(0, beam.damage - clampedDt * 85);
       }
     }
 
     for (const node of this.nodes.values()) {
-      if (node.y > 780 || node.x < -160 || node.x > 1440) {
+      if (
+        node.y > 780 ||
+        node.x < COLLAPSE_X_MIN + 80 ||
+        node.x > COLLAPSE_X_MAX - 80
+      ) {
         outOfBounds = true;
       }
     }
 
-    return { broken: newlyBroken, maxStress, outOfBounds };
+    return { broken: newlyBroken, maxStress, outOfBounds, iterations: this.lastIterations };
   }
 
-  /** Adds a downward acceleration to the deck segment nearest the truck. */
+  /** Adds a downward acceleration to the deck segment under an axle. */
   applyDeckLoad(aId: string, bId: string, t: number, force: number): void {
     const a = this.nodes.get(aId);
     const b = this.nodes.get(bId);
@@ -245,6 +305,23 @@ export class BridgeSimulation {
       return node ? { x: node.x, y: node.y } : undefined;
     });
   }
+
+  /** Fast check used to avoid running Dijkstra on every physics substep. */
+  isPathIntact(path: RoadPath): boolean {
+    for (const beamId of path.beamIds) {
+      const beam = this.beamById.get(beamId);
+      if (!beam || beam.broken) return false;
+    }
+    return true;
+  }
+
+  peakStress(): number {
+    let peak = 0;
+    for (const beam of this.beams) {
+      if (!beam.broken && beam.peakStress > peak) peak = beam.peakStress;
+    }
+    return peak;
+  }
 }
 
 export function pathLength(path: RoadPath, positionOf: (id: string) => Vec2 | undefined): number {
@@ -253,7 +330,9 @@ export function pathLength(path: RoadPath, positionOf: (id: string) => Vec2 | un
     const a = positionOf(path.nodeIds[i]!);
     const b = positionOf(path.nodeIds[i + 1]!);
     if (!a || !b) continue;
-    total += Math.hypot(b.x - a.x, b.y - a.y);
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    total += Math.sqrt(dx * dx + dy * dy);
   }
   return total;
 }
@@ -268,14 +347,16 @@ export function pointOnPath(
     const a = positionOf(path.nodeIds[i]!);
     const b = positionOf(path.nodeIds[i + 1]!);
     if (!a || !b) continue;
-    const segmentLength = Math.hypot(b.x - a.x, b.y - a.y);
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const segmentLength = Math.sqrt(dx * dx + dy * dy);
     if (segmentLength < 0.001) continue;
     if (remaining <= segmentLength || i === path.nodeIds.length - 2) {
       const t = Math.min(1, remaining / segmentLength);
       return {
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t,
-        angle: Math.atan2(b.y - a.y, b.x - a.x),
+        x: a.x + dx * t,
+        y: a.y + dy * t,
+        angle: Math.atan2(dy, dx),
         segment: i,
         t,
       };
@@ -290,7 +371,7 @@ export function pointOnPath(
  * shortest physical deck wins when the player creates loops.
  */
 export function findRoadPath(
-  beams: SimBeam[],
+  beams: readonly RoadBeam[],
   startId: string,
   endId: string,
   positionOf: (id: string) => Vec2 | undefined,

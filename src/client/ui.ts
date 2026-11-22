@@ -41,6 +41,8 @@ export class UI {
   private readonly levelSubtitle = byId<HTMLElement>("levelSubtitle");
   private readonly budgetValue = byId<HTMLElement>("budgetValue");
   private readonly budgetBar = byId<HTMLElement>("budgetBar");
+  private readonly budgetRing = byId<HTMLElement>("budgetRing");
+  private readonly budgetPercent = byId<HTMLElement>("budgetPercent");
   private readonly costValue = byId<HTMLElement>("costValue");
   private readonly beamCount = byId<HTMLElement>("beamCount");
   private readonly spanValue = byId<HTMLElement>("spanValue");
@@ -62,6 +64,9 @@ export class UI {
   private readonly testProgressBar = byId<HTMLElement>("testProgressBar");
   private readonly testProgressLabel = byId<HTMLElement>("testProgressLabel");
   private readonly testTimeLabel = byId<HTMLElement>("testTimeLabel");
+  private readonly integrityValue = byId<HTMLElement>("integrityValue");
+  private readonly integrityBar = byId<HTMLElement>("integrityBar");
+  private readonly stressValue = byId<HTMLElement>("stressValue");
   private readonly canvasHint = byId<HTMLElement>("canvasHint");
   private readonly canvasHintText = byId<HTMLElement>("canvasHintText");
   private readonly saveBtn = byId<HTMLButtonElement>("saveBtn");
@@ -132,7 +137,7 @@ export class UI {
           <span class="material-name">${material.label}</span>
           <span class="material-desc">${material.description}</span>
         </span>
-        <span class="material-price"><b>$${material.costPerPixel.toFixed(2)}</b>/px</span>
+        <span class="material-price"><b>$${(material.costPerPixel * 100).toFixed(0)}</b>/100px</span>
       `;
       button.style.setProperty("--swatch", material.color);
       button.style.setProperty("--swatch-dark", material.colorDark);
@@ -208,14 +213,19 @@ export class UI {
     this.missionHint.textContent = level.hint;
 
     const remaining = hud.budget - hud.cost;
+    const remainingPercent = Math.max(0, Math.min(100, (remaining / hud.budget) * 100));
     this.budgetValue.textContent = formatMoney(Math.max(0, remaining));
     this.budgetValue.style.color = remaining < 80 ? "var(--red)" : "";
     const ratio = Math.min(100, (hud.cost / hud.budget) * 100);
     this.budgetBar.style.width = `${ratio}%`;
     this.budgetBar.classList.toggle("over", hud.cost > hud.budget);
+    this.budgetRing.style.setProperty("--budget-angle", `${remainingPercent * 3.6}deg`);
+    this.budgetRing.classList.toggle("low", remainingPercent < 15);
+    this.budgetPercent.textContent = `${Math.round(remainingPercent)}%`;
     this.costValue.textContent = formatMoney(hud.cost);
     this.beamCount.textContent = `${hud.beamCount} 根构件`;
     this.spanValue.textContent = `${hud.span} px`;
+    document.body.dataset.mode = hud.mode;
 
     const counts = MATERIAL_ORDER.filter((id) => hud.materialCounts[id] > 0).map(
       (id) => `${MATERIALS[id].label.slice(0, 1)} ${hud.materialCounts[id]}`,
@@ -252,6 +262,13 @@ export class UI {
       this.testProgressBar.style.width = `${Math.max(0, Math.min(100, hud.testProgress))}%`;
       this.testProgressLabel.textContent = `${Math.round(hud.testProgress)}%`;
       this.testTimeLabel.textContent = `${hud.testTimeLeft.toFixed(1)}s`;
+      this.integrityValue.textContent = `${Math.round(hud.integrity)}%`;
+      this.integrityBar.style.width = `${Math.max(0, Math.min(100, hud.integrity))}%`;
+      this.integrityBar.classList.toggle("warn", hud.integrity < 55);
+      this.integrityBar.classList.toggle("danger", hud.integrity < 28);
+      this.stressValue.textContent = `${Math.round(hud.peakStress * 100)}%`;
+      this.stressValue.classList.toggle("danger", hud.peakStress > 0.9);
+      this.testMeter.classList.toggle("alert", hud.peakStress > 0.85 || hud.brokenBeams > 0);
     }
 
     this.canvasHintText.textContent = hud.hint;
@@ -268,13 +285,13 @@ export class UI {
       if (this.lastSignature && hud.mode === "edit" && !this.dirty) this.dirty = true;
       this.lastSignature = signature;
     }
-    if (hud.mode !== "edit") this.dirty = true;
     if (this.dirty && hud.mode === "edit") this.setSaveState("有未保存更改", false);
   }
 
   markSaved(): void {
     this.dirty = false;
-    this.setSaveState("已保存", true);
+    const now = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    this.setSaveState(`已保存 ${now}`, true);
     this.setNicknameSaved(true);
   }
 
@@ -404,7 +421,7 @@ export class UI {
       eyebrow: "SPAN / FAILED",
       title: "桥梁没能撑住",
       body: `<p>${escapeHtml(reason)}</p>
-        <p class="dialog-subnote">提示：红色构件代表过载。增加三角支撑、缩短跨度，或把关键受拉构件换成钢材。</p>`,
+        <p class="dialog-subnote">提示：橙色受拉、蓝色受压，越亮越接近断裂。增加三角支撑、缩短跨度，或把关键受拉构件换成钢材。</p>`,
       actions: [
         { label: "返回建造", value: "optimize", primary: true },
         { label: "直接重试", value: "retry" },

@@ -37,6 +37,10 @@ export interface GameHudState {
   testProgress: number;
   testTimeLeft: number;
   testElapsed: number;
+  integrity: number;
+  peakStress: number;
+  brokenBeams: number;
+  physicsIterations: number;
 }
 
 export interface GameResult {
@@ -77,12 +81,16 @@ interface TestState {
   finished: boolean;
   failure: string | null;
   lastCar: CarRenderState;
+  peakStress: number;
+  dustTimer: number;
+  suspension: number;
 }
 
 const STEP = 1 / 120;
 const TRUCK_SPEED = 118;
 const CAR_LOAD = 4400;
 const START_DELAY = 0.55;
+const MAX_PARTICLES = 260;
 
 export class Game {
   private readonly canvas: HTMLCanvasElement;
@@ -100,6 +108,8 @@ export class Game {
   private drag: DragState | null = null;
   private hoveredBeamId: string | null = null;
   private particles: Particle[] = [];
+  private activePath: RoadPath | null = null;
+  private shake = 0;
 
   private undoStack: Build[] = [];
   private redoStack: Build[] = [];
@@ -147,6 +157,8 @@ export class Game {
     this.undoStack = [];
     this.redoStack = [];
     this.particles = [];
+    this.activePath = null;
+    this.shake = 0;
     this.hoveredBeamId = null;
     this.roadConnected = this.checkRoadConnected();
     this.emitHud();
@@ -211,6 +223,7 @@ export class Game {
 
     this.sim = new BridgeSimulation(this.build);
     this.mode = "test";
+    this.activePath = path;
     this.test = {
       elapsed: 0,
       runTime: 0,
@@ -221,18 +234,23 @@ export class Game {
       missingFor: 0,
       finished: false,
       failure: null,
+      peakStress: 0,
+      dustTimer: 0,
+      suspension: 0,
       lastCar: {
         x: this.level.anchors[0]!.x - 68,
         y: this.level.anchors[0]!.y - 10,
         angle: 0,
         visible: true,
+        bounce: 0,
       },
     };
     this.particles = [];
     this.accumulator = 0;
+    this.shake = 0;
     this.hoveredBeamId = null;
     this.emitHud();
-    this.callbacks.onToast("测试开始 — 注意观察构件颜色", "info");
+    this.callbacks.onToast("测试开始 — 拉为橙、压为蓝，越亮越危险", "info");
   }
 
   stopTest(silent = false): void {
@@ -240,7 +258,9 @@ export class Game {
     this.mode = "edit";
     this.sim = null;
     this.test = null;
+    this.activePath = null;
     this.particles = [];
+    this.shake = 0;
     this.emitHud();
     if (!silent) this.callbacks.onToast("已返回建造模式", "info");
   }
@@ -305,6 +325,7 @@ export class Game {
     const dt = Math.min(0.05, Math.max(0, (now - this.lastFrame) / 1000));
     this.lastFrame = now;
     this.updateParticles(dt);
+    this.shake = Math.max(0, this.shake - dt * 2.2);
 
     if (this.mode === "test") {
       this.updateTest(dt);
@@ -334,6 +355,12 @@ export class Game {
     }
   }
 
+  private resolveActivePath(sim: BridgeSimulation): RoadPath | null {
+    if (this.activePath && sim.isPathIntact(this.activePath)) return this.activePath;
+    this.activePath = sim.activeRoadPath(this.level.startAnchorId, this.level.endAnchorId);
+    return this.activePath;
+  }
+
   private substepTest(dt: number): void {
     const test = this.test;
     const sim = this.sim;
@@ -345,7 +372,7 @@ export class Game {
       return;
     }
 
-    const path = sim.activeRoadPath(this.level.startAnchorId, this.level.endAnchorId);
+    const path = this.resolveActivePath(sim);
     test.path = path;
     if (path) {
       test.pathLength = pathLength(path, (id) => sim.nodePosition(id));
@@ -367,6 +394,7 @@ export class Game {
       y: startAnchor.y - 10,
       angle: 0,
       visible: true,
+      bounce: 0,
     };
 
     let deckPoint: { x: number; y: number; angle: number; segment: number; t: number } | null = null;
@@ -381,9 +409,12 @@ export class Game {
         const point = pointOnPath(path, test.carDistance, (id) => sim.nodePosition(id));
         if (point) {
           deckPoint = point;
+          test.suspension +=
+            (Math.sin(test.travelled * 0.19) * 0.55 - test.suspension) * 0.18;
           car.x = point.x;
           car.y = point.y - 10;
           car.angle = clamp(point.angle, -0.65, 0.65);
+          car.bounce = test.suspension;
           if (point.y > 590) {
             this.failTest("桥面塌陷：路面已经沉入峡谷。");
             return;
@@ -396,25 +427,33 @@ export class Game {
     }
 
     if (path && deckPoint) {
+      const grade = 1 + Math.min(0.22, Math.abs(Math.sin(deckPoint.angle)) * 0.34);
       const front = pointOnPath(path, test.carDistance, (id) => sim.nodePosition(id));
       const rear = pointOnPath(path, Math.max(0, test.carDistance - 20), (id) => sim.nodePosition(id));
       if (front) {
         const a = path.nodeIds[front.segment];
         const b = path.nodeIds[front.segment + 1];
-        if (a && b) sim.applyDeckLoad(a, b, front.t, CAR_LOAD * 0.64);
+        if (a && b) sim.applyDeckLoad(a, b, front.t, CAR_LOAD * 0.64 * grade);
       }
       if (rear) {
         const a = path.nodeIds[rear.segment];
         const b = path.nodeIds[rear.segment + 1];
-        if (a && b) sim.applyDeckLoad(a, b, rear.t, CAR_LOAD * 0.36);
+        if (a && b) sim.applyDeckLoad(a, b, rear.t, CAR_LOAD * 0.36 * grade);
+      }
+      test.dustTimer += dt;
+      if (test.dustTimer > 0.085) {
+        test.dustTimer = 0;
+        this.spawnDust(car.x - 30, car.y + 11, car.angle);
       }
     }
 
     test.lastCar = car;
 
     const stepResult = sim.step(dt);
+    test.peakStress = Math.max(test.peakStress, stepResult.maxStress);
     for (const beam of stepResult.broken) {
       this.spawnBreakParticles(beam);
+      this.shake = Math.max(this.shake, 0.32);
       this.callbacks.onToast(`${MATERIALS[beam.material].label}构件断裂！`, "error");
     }
 
@@ -439,12 +478,16 @@ export class Game {
     if (!test || test.finished) return;
     test.finished = true;
     this.mode = "success";
+    this.shake = 0;
+    const endAnchor = this.level.anchors.find((a) => a.id === this.level.endAnchorId)!;
     this.test!.lastCar = {
-      x: this.level.anchors.find((a) => a.id === this.level.endAnchorId)!.x + 14,
-      y: this.level.anchors.find((a) => a.id === this.level.endAnchorId)!.y - 10,
+      x: endAnchor.x + 14,
+      y: endAnchor.y - 10,
       angle: 0,
       visible: true,
+      bounce: 0,
     };
+    this.spawnConfetti(endAnchor.x + 18, endAnchor.y - 34);
     this.emitHud();
     this.callbacks.onSuccess(this.getResult());
   }
@@ -455,6 +498,7 @@ export class Game {
     test.finished = true;
     test.failure = reason;
     this.mode = "failure";
+    this.shake = 1;
     this.emitHud();
     this.callbacks.onFailure(reason, this.getResult());
   }
@@ -487,6 +531,7 @@ export class Game {
       car,
       time: performance.now() / 1000,
       showStress: this.mode !== "edit",
+      shake: this.shake,
     };
     this.renderer.render(state);
   }
@@ -756,21 +801,7 @@ export class Game {
   }
 
   private checkRoadPath(): RoadPath | null {
-    const beams: SimBeam[] = this.build.beams.map((beam) => {
-      const a = this.build.nodes.find((node) => node.id === beam.a);
-      const b = this.build.nodes.find((node) => node.id === beam.b);
-      return {
-        ...beam,
-        rest: a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 1,
-        stiffness: 1,
-        breakStrain: 1,
-        broken: false,
-        stress: 0,
-        overload: 0,
-        firstStrain: 0,
-        finalStrain: 0,
-      };
-    });
+    const beams = this.build.beams.map((beam) => ({ ...beam, broken: false }));
     const positions = new Map(this.build.nodes.map((node) => [node.id, node]));
     return findRoadPath(beams, this.level.startAnchorId, this.level.endAnchorId, (id) => positions.get(id));
   }
@@ -799,6 +830,17 @@ export class Game {
     const progress = test
       ? Math.max(0, Math.min(100, (test.carDistance / Math.max(1, test.pathLength)) * 100))
       : 0;
+    const peakStress = test?.peakStress ?? 0;
+    const brokenBeams = this.sim?.brokenBeams.length ?? 0;
+    const integrity =
+      this.mode === "failure"
+        ? 0
+        : this.mode === "success"
+          ? 100
+          : Math.max(
+              0,
+              Math.min(100, 100 - Math.max(0, peakStress - 0.55) * 95 - brokenBeams * 16),
+            );
 
     this.callbacks.onHud({
       level: this.level,
@@ -817,17 +859,21 @@ export class Game {
       testProgress: progress,
       testTimeLeft: Math.max(0, this.level.timeLimit - (test?.elapsed ?? 0)),
       testElapsed: test?.elapsed ?? 0,
+      integrity,
+      peakStress,
+      brokenBeams,
+      physicsIterations: this.sim?.lastIterations ?? 0,
     });
   }
 
   private hintFor(cost: number): string {
-    if (this.mode === "test") return "测试中：红色构件正在过载，连续过载会断裂。";
+    if (this.mode === "test") return "测试中：橙色受拉、蓝色受压，颜色越亮越危险。";
     if (this.mode === "success") return "卡车已安全抵达对岸。";
     if (this.mode === "failure") return "测试失败。调整结构后重试。";
     if (this.build.beams.length === 0) return "从锚点或已有节点按住拖动，拉出第一根构件。";
     if (!this.roadConnected) return "还没有连通的桥面：选择「路面」，从一岸连续铺到另一岸。";
     if (this.level.budget - cost < 60) return "预算所剩无几。可以拆除多余构件，或直接测试。";
-    return "桥面已连通。点击「测试桥梁」，观察橙色与红色受力构件。";
+    return "桥面已连通。点击「测试桥梁」，橙色受拉、蓝色受压。";
   }
 
   private sanitizeBuild(raw: Build): Build {
@@ -900,7 +946,55 @@ export class Game {
         color,
         size: 1.4 + Math.random() * 2.6,
         gravity: 280,
+        kind: "spark",
       });
+    }
+    this.capParticles();
+  }
+
+  private spawnDust(x: number, y: number, angle: number): void {
+    const side = Math.cos(angle) >= 0 ? -1 : 1;
+    for (let i = 0; i < 2; i += 1) {
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 8,
+        y: y + (Math.random() - 0.5) * 4,
+        vx: side * (12 + Math.random() * 24) + (Math.random() - 0.5) * 8,
+        vy: -8 - Math.random() * 18,
+        life: 0.45 + Math.random() * 0.5,
+        maxLife: 0.95,
+        color: "rgba(206, 170, 128, 0.55)",
+        size: 2 + Math.random() * 3,
+        gravity: 16,
+        kind: "dust",
+      });
+    }
+    this.capParticles();
+  }
+
+  private spawnConfetti(x: number, y: number): void {
+    const colors = ["#f1b45d", "#72d8e6", "#7cd9a8", "#fff0c9", "#ff8c68"];
+    for (let i = 0; i < 52; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 45 + Math.random() * 170;
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 14,
+        y: y + (Math.random() - 0.5) * 10,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 80,
+        life: 1.1 + Math.random() * 1.1,
+        maxLife: 2.2,
+        color: colors[i % colors.length]!,
+        size: 1.8 + Math.random() * 2.8,
+        gravity: 120,
+        kind: "confetti",
+      });
+    }
+    this.capParticles();
+  }
+
+  private capParticles(): void {
+    if (this.particles.length > MAX_PARTICLES) {
+      this.particles.splice(0, this.particles.length - MAX_PARTICLES);
     }
   }
 

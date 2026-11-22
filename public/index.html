@@ -51,14 +51,19 @@
               <p id="levelSubtitle">先让第一辆车通过</p>
             </div>
             <div class="budget-card">
-              <div class="budget-top">
-                <span>剩余预算</span>
-                <strong id="budgetValue">$1,050</strong>
+              <div class="budget-ring" id="budgetRing" aria-hidden="true">
+                <div class="budget-ring-core"><span id="budgetPercent">100%</span></div>
               </div>
-              <div class="budget-track"><i id="budgetBar"></i></div>
-              <div class="budget-foot">
-                <span>已用 <b id="costValue">$0</b></span>
-                <span id="beamCount">0 根构件</span>
+              <div class="budget-copy">
+                <div class="budget-top">
+                  <span>剩余预算</span>
+                  <strong id="budgetValue">$1,050</strong>
+                </div>
+                <div class="budget-track"><i id="budgetBar"></i></div>
+                <div class="budget-foot">
+                  <span>已用 <b id="costValue">$0</b></span>
+                  <span id="beamCount">0 根构件</span>
+                </div>
               </div>
             </div>
           </div>
@@ -69,11 +74,10 @@
             <div class="canvas-top-left">
               <div class="mode-badge" id="modeBadge"><i></i><span>建造模式</span></div>
               <div class="stress-legend" id="stressLegend" hidden>
-                <span class="legend-title">应力</span>
-                <span class="stress-swatch low"></span>
-                <span class="stress-swatch mid"></span>
-                <span class="stress-swatch high"></span>
-                <span class="legend-label">安全 → 临界</span>
+                <span class="legend-title">受力</span>
+                <span class="legend-item"><i class="stress-line tension"></i>拉</span>
+                <span class="legend-item"><i class="stress-line compression"></i>压</span>
+                <span class="legend-label">越亮越危险</span>
               </div>
             </div>
 
@@ -81,7 +85,12 @@
               <div class="test-meter" id="testMeter" hidden>
                 <div class="test-meter-row"><span>通行进度</span><b id="testProgressLabel">0%</b></div>
                 <div class="test-meter-track"><i id="testProgressBar"></i></div>
-                <div class="test-meter-time"><span>剩余</span><b id="testTimeLabel">25.0s</b></div>
+                <div class="test-meter-split">
+                  <div><span>结构完整度</span><b id="integrityValue">100%</b></div>
+                  <div><span>最大应力</span><b id="stressValue">0%</b></div>
+                </div>
+                <div class="integrity-track"><i id="integrityBar"></i></div>
+                <div class="test-meter-time"><span>剩余时间</span><b id="testTimeLabel">25.0s</b></div>
               </div>
             </div>
 
@@ -173,7 +182,7 @@
             <ol class="guide-list">
               <li><b>铺路</b><span>从锚点连续拖出路面，直到对岸。</span></li>
               <li><b>加撑</b><span>三角形比平行杆更稳，木料做斜撑最划算。</span></li>
-              <li><b>试桥</b><span>测试时红色构件过载，持续过载就会断裂。</span></li>
+              <li><b>试桥</b><span>橙色受拉、蓝色受压；颜色越亮越接近断裂。</span></li>
             </ol>
             <div class="shortcuts">
               <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 切换材料</span>
