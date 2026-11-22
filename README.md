@@ -1,0 +1,115 @@
+# SPAN · 造桥模拟器
+
+一个纯 HTML + TypeScript + Node 服务器存储的网页版造桥模拟器。在预算内连接两岸、铺设路面，让卡车通过；桥梁会实时受力、变形，过载构件会断裂。
+
+![SPAN 游戏截图](docs/screenshot.jpg)
+
+## 初版包含
+
+- 3 个关卡：溪谷小路、双峰之间、大峡谷。
+- 木材 / 钢材 / 路面三种构件，按长度计费，实时预算校验。
+- 基于位置约束（PBD）的结构模拟：重力、卡车动态载荷、应力着色、过载断裂、坍塌判定。
+- 建造交互：拖拽节点、网格吸附、右键拆除、撤销/重做、清空。
+- 服务器昵称存档：每个昵称每关一份设计，刷新页面自动恢复。
+- 服务器排行榜：按建造成本升序、通过时间升序排列，保留每位玩家每关最佳成绩。
+- 桌面、平板、手机响应式布局。
+
+## 快速开始
+
+环境要求：Node.js **22.5+**。
+
+```bash
+npm install
+npm run build
+npm start
+```
+
+打开 <http://127.0.0.1:4173>。
+
+开发时改完 TypeScript 需要重新执行 `npm run build`，然后刷新页面（服务器提供静态文件，无需重启，除非改了服务端代码）。
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PORT` | `4173` | HTTP 端口 |
+| `HOST` | `127.0.0.1` | 监听地址；设置为 `0.0.0.0` 可供局域网访问 |
+| `BRIDGE_DATA_DIR` | `<项目>/data` | JSON 数据库目录 |
+| `BRIDGE_PUBLIC_DIR` | `<项目>/public` | 静态文件目录 |
+
+## 操作方式
+
+| 操作 | 说明 |
+| --- | --- |
+| 从节点按住拖动 | 以当前材料新建构件；松手在空白网格处会创建新节点 |
+| 右键点击 | 拆除构件或节点 |
+| `1` `2` `3` | 切换路面 / 木材 / 钢材 |
+| `Ctrl+Z` / `Ctrl+Y` | 撤销 / 重做 |
+| `Delete` | 删除悬停的构件 |
+| `T` | 开始测试 |
+| `Esc` | 取消拖动 / 返回建造 |
+
+建造要点：路面必须从左侧锚点连续连到右侧锚点；三角桁架比平行杆更稳定；测试时红色构件代表接近断裂。
+
+## 技术架构
+
+```
+src/shared/types.ts       前后端共享类型
+src/shared/levels.ts      关卡几何、锚点、预算
+src/shared/materials.ts   材料参数与成本计算
+src/client/physics.ts     Verlet / PBD 物理、断裂判定、路面寻路
+src/client/renderer.ts    Canvas 2D 场景与 UI 内绘制
+src/client/game.ts        游戏状态、建造交互、卡车与胜负流程
+src/client/ui.ts          HUD、弹窗、排行榜
+src/client/api.ts         后端请求封装
+src/client/main.ts        页面装配与存档流程
+src/server/server.ts      原生 http 服务器与静态资源
+src/server/validation.ts  请求校验
+src/server/store.ts       JSON 持久化与排行榜
+public/                   HTML / CSS / 编译后的浏览器 JS
+tests/                    物理与 API 自动化测试
+```
+
+- 前端不依赖框架，TypeScript 直接编译为原生 ES Module。
+- 物理：节点为质点，梁为距离约束，每帧多次迭代；梁的应力由施加载荷后的应变采样得到，持续过载后断裂。卡车沿当前连通路面行驶，并把载荷分配给桥面最近的两个节点。
+- 后端零运行时依赖，只使用 Node 内置模块。数据写入 `data/db.json`，采用临时文件 + rename 原子替换，并对写入队列串行化。
+- 服务端会重新计算设计成本、校验关卡预算、节点引用、锚点完整性与请求体大小。
+
+## API
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/health` | 服务状态与存储统计 |
+| `GET` | `/api/levels` | 公开关卡列表 |
+| `GET` | `/api/leaderboard?levelId=creek&nickname=...` | 前 10 名与个人最佳 |
+| `GET` | `/api/designs?nickname=...&levelId=...` | 读取昵称存档 |
+| `POST` | `/api/designs` | 保存/覆盖设计 |
+| `POST` | `/api/results` | 提交通关成绩，保留个人最佳 |
+
+示例：
+
+```bash
+curl "http://127.0.0.1:4173/api/health"
+curl "http://127.0.0.1:4173/api/leaderboard?levelId=creek"
+```
+
+请求体最大 512 KB；昵称最多 16 个字符；节点上限 200、构件上限 240。
+
+## 测试
+
+```bash
+npm run build
+npm test
+```
+
+测试覆盖路面寻路、材料预算、无支撑桥面坍塌、木桁架通关，以及存档、成绩排名、非法请求与静态资源安全头。
+
+> 如果所在环境禁止 Node 测试运行器创建子进程，当前 `npm test` 已使用 `--experimental-test-isolation=none` 单进程模式。
+
+## 数值调整
+
+材料价格、强度、最大长度集中在 `src/shared/materials.ts`；关卡预算、跨距、锚点集中在 `src/shared/levels.ts`；卡车载荷与速度在 `src/client/game.ts` 顶部常量中。修改后执行 `npm run build` 即可。
+
+## 初版边界
+
+当前版本不包含账号密码系统、钢索/斜拉桥、多种车辆、关卡编辑器与多人实时。排行榜成绩由客户端提交，服务端会校验范围与成本上限，但未做防作弊回放校验；正式运营前应增加服务端模拟或成绩签名。

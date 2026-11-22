@@ -1,0 +1,14 @@
+node_modules/
+dist/
+public/js/
+data/db.json
+data/*.tmp
+.npm-cache/
+.chrome-profile/
+.chrome-profile2/
+.edge-profile/
+playwright-*.png
+shot.png
+tests/.tmp-api/
+*.log
+.DS_Store

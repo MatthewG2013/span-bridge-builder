@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#08101f" />
+    <meta name="description" content="Span 造桥模拟器 — 在预算内设计桥梁，让卡车安全通过。" />
+    <title>SPAN · 造桥模拟器</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1425'/%3E%3Cpath d='M12 44h40M20 44V28m24 16V28M20 32c4-10 20-10 24 0M28 44v-7m8 7v-7' stroke='%23f0b35a' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div class="ambient ambient-a"></div>
+    <div class="ambient ambient-b"></div>
+
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" role="img">
+              <path d="M6 34h36M13 34V20m22 14V20M13 24c4-9 18-9 22 0M20 34v-6m8 6v-6" />
+            </svg>
+          </div>
+          <div class="brand-copy">
+            <span class="brand-name">SPAN</span>
+            <span class="brand-sub">造桥模拟器 / BRIDGE LAB</span>
+          </div>
+        </div>
+
+        <nav class="level-switch" id="levelSwitch" aria-label="选择关卡"></nav>
+
+        <div class="top-actions">
+          <label class="player-field" for="nicknameInput">
+            <span>工程师</span>
+            <input id="nicknameInput" name="nickname" type="text" maxlength="16" placeholder="输入昵称存档" autocomplete="nickname" spellcheck="false" />
+            <i class="field-status" id="nicknameStatus" aria-hidden="true"></i>
+          </label>
+          <div class="server-status" id="serverStatus" title="服务器连接状态">
+            <i></i>
+            <span>连接中</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="stage-panel">
+          <div class="stage-head">
+            <div class="level-title">
+              <div class="eyebrow"><span id="levelCode">SPAN-01</span><span class="dot"></span><span id="levelDifficulty">入门</span></div>
+              <h1 id="levelName">溪谷小路</h1>
+              <p id="levelSubtitle">先让第一辆车通过</p>
+            </div>
+            <div class="budget-card">
+              <div class="budget-top">
+                <span>剩余预算</span>
+                <strong id="budgetValue">$1,050</strong>
+              </div>
+              <div class="budget-track"><i id="budgetBar"></i></div>
+              <div class="budget-foot">
+                <span>已用 <b id="costValue">$0</b></span>
+                <span id="beamCount">0 根构件</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="canvas-wrap" id="canvasWrap">
+            <canvas id="gameCanvas" aria-label="造桥游戏画布"></canvas>
+
+            <div class="canvas-top-left">
+              <div class="mode-badge" id="modeBadge"><i></i><span>建造模式</span></div>
+              <div class="stress-legend" id="stressLegend" hidden>
+                <span class="legend-title">应力</span>
+                <span class="stress-swatch low"></span>
+                <span class="stress-swatch mid"></span>
+                <span class="stress-swatch high"></span>
+                <span class="legend-label">安全 → 临界</span>
+              </div>
+            </div>
+
+            <div class="canvas-top-right">
+              <div class="test-meter" id="testMeter" hidden>
+                <div class="test-meter-row"><span>通行进度</span><b id="testProgressLabel">0%</b></div>
+                <div class="test-meter-track"><i id="testProgressBar"></i></div>
+                <div class="test-meter-time"><span>剩余</span><b id="testTimeLabel">25.0s</b></div>
+              </div>
+            </div>
+
+            <div class="canvas-hint" id="canvasHint">
+              <span class="mouse-icon" aria-hidden="true"></span>
+              <span id="canvasHintText">从锚点或已有节点按住拖动，拉出第一根构件</span>
+            </div>
+
+            <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+          </div>
+
+          <div class="stage-foot">
+            <div class="stage-stats">
+              <div class="stat"><span>跨距</span><strong id="spanValue">320 px</strong></div>
+              <div class="stat"><span>材料</span><strong id="materialSummary">—</strong></div>
+              <div class="stat"><span>关卡最佳</span><strong id="personalBest">—</strong></div>
+            </div>
+            <div class="stage-actions">
+              <button class="icon-btn" id="undoBtn" title="撤销 (Ctrl+Z)" aria-label="撤销">
+                <svg viewBox="0 0 24 24"><path d="M9 7 4 12l5 5M4 12h8a6 6 0 0 1 6 6" /></svg>
+              </button>
+              <button class="icon-btn" id="redoBtn" title="重做 (Ctrl+Y)" aria-label="重做">
+                <svg viewBox="0 0 24 24"><path d="m15 7 5 5-5 5m5-5h-8a6 6 0 0 0-6 6" /></svg>
+              </button>
+              <button class="ghost-btn" id="resetBtn">清空</button>
+              <button class="test-btn" id="testBtn">
+                <span class="test-btn-icon" aria-hidden="true"></span>
+                <span id="testBtnLabel">测试桥梁</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="sidebar">
+          <section class="panel mission-panel">
+            <div class="panel-head">
+              <h2>任务简报</h2>
+              <span class="panel-tag" id="missionTag">01</span>
+            </div>
+            <p class="mission-brief" id="missionBrief"></p>
+            <div class="hint-box">
+              <span class="hint-label">提示</span>
+              <p id="missionHint"></p>
+            </div>
+          </section>
+
+          <section class="panel material-panel">
+            <div class="panel-head">
+              <h2>结构材料</h2>
+              <span class="panel-note">拖拽建造</span>
+            </div>
+            <div class="material-list" id="materialList"></div>
+            <div class="material-tip" id="materialTip"></div>
+          </section>
+
+          <section class="panel archive-panel">
+            <div class="panel-head">
+              <h2>服务器存档</h2>
+              <span class="panel-note" id="saveState">未保存</span>
+            </div>
+            <div class="archive-actions">
+              <button class="archive-btn primary-soft" id="saveBtn">
+                <svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5zM8 4v6h8V4M8 20v-6h8v6" /></svg>
+                <span>保存设计</span>
+              </button>
+              <button class="archive-btn" id="loadBtn">
+                <svg viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4zM12 12v5m-2-2 2 2 2-2" /></svg>
+                <span>读取存档</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel leaderboard-panel">
+            <div class="panel-head">
+              <h2>本关排行榜</h2>
+              <button class="text-btn" id="refreshBoardBtn">刷新</button>
+            </div>
+            <div class="leaderboard" id="leaderboard">
+              <div class="leaderboard-empty">连接服务器后显示排名</div>
+            </div>
+            <p class="leaderboard-note">成本越低排名越高 · 同成本比时间</p>
+          </section>
+
+          <section class="panel guide-panel">
+            <div class="panel-head">
+              <h2>建造要点</h2>
+              <span class="panel-note">新手</span>
+            </div>
+            <ol class="guide-list">
+              <li><b>铺路</b><span>从锚点连续拖出路面，直到对岸。</span></li>
+              <li><b>加撑</b><span>三角形比平行杆更稳，木料做斜撑最划算。</span></li>
+              <li><b>试桥</b><span>测试时红色构件过载，持续过载就会断裂。</span></li>
+            </ol>
+            <div class="shortcuts">
+              <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 切换材料</span>
+              <span><kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销</span>
+              <span><kbd>右键</kbd> 拆除</span>
+            </div>
+          </section>
+        </aside>
+      </main>
+
+      <footer class="footer">
+        <span>拖动节点建造 · 右键删除 · Ctrl+Z 撤销 · 测试时观察红色过载构件</span>
+        <span class="footer-right"><i></i> 数据保存在本地服务器</span>
+      </footer>
+    </div>
+
+    <dialog class="game-dialog" id="gameDialog">
+      <form method="dialog" class="dialog-card" id="dialogForm">
+        <div class="dialog-glow"></div>
+        <div class="dialog-eyebrow" id="dialogEyebrow">系统提示</div>
+        <h2 id="dialogTitle">标题</h2>
+        <div class="dialog-body" id="dialogBody"></div>
+        <div class="dialog-actions" id="dialogActions"></div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/js/client/main.js"></script>
+  </body>
+</html>
