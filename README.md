@@ -73,11 +73,12 @@ npm run package:lite   # 只生成精简版
 
 - `release/SPAN-0.2.0-portable/` — 完整版目录
 - `release/SPAN-0.2.0-lite/` — 精简版目录
+- `release/使用说明.txt` — 完整使用说明
 - `public/download/SPAN-0.2.0-portable-win64.zip` — 完整版下载包
 - `public/download/SPAN-0.2.0-lite-win64.zip` — 精简版下载包
 - `public/download.html` + `public/download.js` — 下载页，启动服务器后访问 `http://127.0.0.1:4173/download.html`
 
-完整版约 32.7 MB，包含 `runtime/node.exe`，用户解压后双击 **`START-SPAN.bat`** 即可运行，无需安装 Node、npm 或编译。精简版约 60 KB，需要系统已安装 Node.js 22.5+。
+完整版约 32.7 MB，包含 `runtime/node.exe`，用户解压后双击 **`START-SPAN.bat`** 即可运行，无需安装 Node、npm 或编译。精简版约 60 KB，需要系统已安装 Node.js 22.5+。每个压缩包内同时包含 `README.txt` 和完整使用说明 `GUIDE.txt`。
 
 `public/download/` 下的 zip 和 `release/` 目录属于生成产物，不纳入 Git；重新打包即可恢复。
 

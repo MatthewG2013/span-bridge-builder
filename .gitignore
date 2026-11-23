@@ -10,7 +10,8 @@ data/*.tmp
 playwright-*.png
 shot.png
 tests/.tmp-api/
-release/
+release/*
+!release/使用说明.txt
 public/download/*.zip
 *.log
 .DS_Store

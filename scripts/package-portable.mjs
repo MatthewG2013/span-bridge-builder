@@ -53,6 +53,7 @@ await rm(RELEASE_ROOT, { recursive: true, force: true });
 await rm(DOWNLOAD_DIR, { recursive: true, force: true });
 await mkdir(RELEASE_ROOT, { recursive: true });
 await mkdir(DOWNLOAD_DIR, { recursive: true });
+await writeFile(path.join(RELEASE_ROOT, "使用说明.txt"), `\uFEFF${usageGuide()}`, "utf8");
 
 for (const variant of variants) {
   const folderName = `SPAN-${VERSION}-${variant.key}`;
@@ -69,12 +70,129 @@ for (const variant of variants) {
 }
 
 console.log("");
-console.log("  打包完成。下载页面：public/download.html");
+console.log("  打包完成。使用说明：release/使用说明.txt");
+console.log("  下载页面：public/download.html");
 console.log("  下载目录：public/download/");
 console.log("");
 
-async function assemble(target, variant) {
-  await mkdir(target, { recursive: true });
+function usageGuide() {
+  return `SPAN 造桥模拟器 ${VERSION} · 便携版使用说明
+==================================================
+
+一、release 目录里有什么
+------------------------
+${variants.map((variant) => `- ${`SPAN-${VERSION}-${variant.key}`}/  ${variant.label}${variant.withNode ? "（内置 Node.js，开箱即用）" : "（需要系统 Node.js 22.5+）"}`).join("\n")}
+- 使用说明.txt  本文件
+- 下载压缩包位于 ../public/download/ 目录
+
+二、最快启动方式（完整版）
+--------------------------
+1. 解压 SPAN-${VERSION}-portable 文件夹到任意位置。
+   请先完整解压，不要直接在压缩包里双击。
+2. 打开解压后的文件夹。
+3. 双击 START-SPAN.bat。
+4. 等待 1–2 秒，默认浏览器会自动打开：
+   http://127.0.0.1:4173
+5. 关闭启动窗口，或按 Ctrl+C，即可停止服务器。
+
+完整版已经内置 Node.js 运行时，不需要安装 Node、npm，
+也不需要执行 npm install 或 npm run build。
+
+三、精简版启动方式
+------------------
+精简版不包含 node.exe，需要电脑已安装 Node.js 22.5 或更高版本：
+  https://nodejs.org/
+
+安装 Node 后，双击精简版文件夹里的 START-SPAN.bat 即可。
+启动逻辑与完整版完全一样。
+
+四、两个入口的区别
+------------------
+- START-SPAN.bat  推荐入口，双击即可启动并打开浏览器。
+- start.bat       命令行入口，作用相同，方便在终端里调用。
+
+五、如何停止服务器
+------------------
+- 直接关闭启动窗口。
+- 或在启动窗口里按 Ctrl+C。
+- 如果窗口异常关闭但端口仍被占用，重新运行入口即可检测并启动；
+  也可以注销/重启电脑释放端口。
+
+六、端口与局域网访问
+--------------------
+默认只监听本机：
+  http://127.0.0.1:4173
+
+如果 4173 端口被占用，可以在启动前设置环境变量：
+  set PORT=5173
+  START-SPAN.bat
+
+希望局域网内其他设备访问，可以：
+  set HOST=0.0.0.0
+  START-SPAN.bat
+然后用本机局域网 IP 加端口访问，例如：
+  http://192.168.1.20:4173
+注意：开放到局域网前请确认你信任所在网络。
+
+七、存档与数据
+--------------
+游戏存档、昵称和排行榜数据保存在：
+  data\\db.json
+
+- 备份：复制整个 data 文件夹。
+- 重置：关闭游戏，删除 data 文件夹，重启后会重新创建。
+- 升级：替换程序文件时保留 data 文件夹，存档不会丢失。
+
+八、常见问题
+------------
+1. 浏览器没有自动打开
+   手动在浏览器地址栏输入 http://127.0.0.1:4173
+   如果仍然打不开，检查启动窗口里是否有错误信息。
+
+2. Windows 提示“Windows 已保护你的电脑”
+   这是对未签名 .bat 启动脚本的常规提示。
+   点击「更多信息」→「仍要运行」即可。
+
+3. 提示 Node.js 未找到（仅精简版）
+   说明系统没有 Node.js，或版本低于 22.5。
+   安装最新 LTS 版 Node.js，或者改用完整便携版。
+
+4. 提示端口被占用
+   换一个端口：
+     set PORT=5173
+     START-SPAN.bat
+
+5. 双击后窗口一闪而过
+   请确认是解压后的文件夹，并且 START-SPAN.bat 与
+   launcher.mjs、server、public 在同一个目录中。
+
+6. 数据想换电脑
+   复制整个程序文件夹，或至少复制 data 文件夹。
+
+九、目录结构
+------------
+START-SPAN.bat          双击入口
+start.bat               命令行入口
+launcher.mjs            本地启动器
+server\\                 后端服务
+shared\\                 前后端共享关卡与材料
+public\\                 前端页面
+runtime\\node.exe        完整版内置的 Node.js 运行时
+data\\db.json            自动生成的存档与排行榜
+README.txt              包内简要说明
+GUIDE.txt               完整使用说明
+
+十、安全与隐私
+--------------
+- 默认仅在 127.0.0.1 提供本地服务，不对外网开放。
+- 不需要联网即可游玩；只有首次下载安装包时需要网络。
+- 删除 data 文件夹即可清空所有本地存档。
+
+SPAN · Bridge Lab
+`;
+}
+
+async function assemble(target, variant) {  await mkdir(target, { recursive: true });
   await copyDir(path.join(ROOT, "dist", "server"), path.join(target, "server"));
   await copyDir(path.join(ROOT, "dist", "shared"), path.join(target, "shared"));
 
@@ -86,6 +204,7 @@ async function assemble(target, variant) {
   await copyFile(path.join(TEMPLATE_DIR, "launcher.mjs"), path.join(target, "launcher.mjs"));
   await copyFile(path.join(TEMPLATE_DIR, "start.bat"), path.join(target, "start.bat"));
   await copyFile(path.join(TEMPLATE_DIR, "START-SPAN.bat"), path.join(target, "START-SPAN.bat"));
+  await writeFile(path.join(target, "GUIDE.txt"), `\uFEFF${usageGuide()}`, "utf8");
 
   await writeFile(
     path.join(target, "package.json"),
@@ -115,6 +234,9 @@ async function assemble(target, variant) {
 【入口】
 - START-SPAN.bat  （推荐，双击即可）
 - start.bat        （命令行入口）
+
+【完整说明】
+请阅读同目录下的 GUIDE.txt，包含端口、存档、局域网和常见问题。
 
 【环境】
 ${variant.withNode
