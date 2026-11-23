@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json",
     "start": "node dist/server/server.js",
+    "launch": "node scripts/launch.mjs",
     "test": "node --test --experimental-test-isolation=none tests/physics.test.mjs tests/server.test.mjs"
   },
   "engines": {
