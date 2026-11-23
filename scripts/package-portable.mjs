@@ -8,6 +8,7 @@
  *   npm run package:lite   # lite only
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cp, copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -55,6 +56,7 @@ await mkdir(RELEASE_ROOT, { recursive: true });
 await mkdir(DOWNLOAD_DIR, { recursive: true });
 await writeFile(path.join(RELEASE_ROOT, "使用说明.txt"), `\uFEFF${usageGuide()}`, "utf8");
 
+const published = [];
 for (const variant of variants) {
   const folderName = `SPAN-${VERSION}-${variant.key}`;
   const target = path.join(RELEASE_ROOT, folderName);
@@ -67,7 +69,17 @@ for (const variant of variants) {
   createZip(target, zipPath);
   const info = await stat(zipPath);
   console.log(`  ${zipName}  ${formatSize(info.size)}`);
+  published.push({ zipName, zipPath });
 }
+
+const checksums = [];
+for (const { zipName, zipPath } of published) {
+  checksums.push(`${await hashFile(zipPath)}  ${zipName}`);
+}
+const checksumText = `${checksums.join("\n")}\n`;
+await writeFile(path.join(DOWNLOAD_DIR, "SHA256SUMS.txt"), checksumText, "utf8");
+await writeFile(path.join(RELEASE_ROOT, "SHA256SUMS.txt"), checksumText, "utf8");
+console.log("→ 已写入 SHA256SUMS.txt");
 
 console.log("");
 console.log("  打包完成。使用说明：release/使用说明.txt");
@@ -335,6 +347,11 @@ function formatSize(bytes) {
   if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   if (bytes > 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${bytes} B`;
+}
+
+async function hashFile(filePath) {
+  const data = await readFile(filePath);
+  return createHash("sha256").update(data).digest("hex");
 }
 
 function fail(message) {

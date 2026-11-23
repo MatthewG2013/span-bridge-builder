@@ -84,6 +84,52 @@ npm run package:lite   # 只生成精简版
 
 > 浏览器出于安全限制不能直接运行本地 `.bat` 文件。用户需要先下载并解压 zip，再从资源管理器双击 `START-SPAN.bat`。
 
+## 发布到 GitHub / Gitee
+
+仓库名、可见性和 Token 由本地 `.release-secrets.json` 控制（该文件已被 `.gitignore` 忽略）。
+
+1. 在 GitHub 创建个人访问令牌（classic，勾选 `repo`）：  
+   <https://github.com/settings/tokens>
+2. 在 Gitee 创建私人令牌（勾选 `projects`）：  
+   <https://gitee.com/profile/personal_access_tokens>
+3. 复制示例文件并填写：
+
+```bash
+copy .release-secrets.example.json .release-secrets.json
+```
+
+```json
+{
+  "githubToken": "ghp_xxx",
+  "giteeToken": "xxx",
+  "repoName": "span-bridge-builder",
+  "visibility": "public"
+}
+```
+
+4. 先检查发布计划：
+
+```bash
+npm run publish:dry
+```
+
+5. 正式发布：
+
+```bash
+npm run publish
+```
+
+脚本会：
+
+- 从 Token 自动识别 GitHub / Gitee 用户名
+- 不存在时创建同名仓库
+- 推送当前分支和 `v0.2.0` 标签
+- 创建/更新两边的 Release
+- 上传完整版、精简版和 `SHA256SUMS.txt`
+- 输出两边仓库与 Release 地址
+
+Token 不会写入 Git remote，也不会打印到日志。发布完成后建议删除 `.release-secrets.json`。也可以改用环境变量 `GITHUB_TOKEN`、`GITEE_TOKEN`。
+
 ## 手动启动
 
 环境要求：Node.js **22.5+**。

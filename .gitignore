@@ -15,3 +15,6 @@ release/*
 public/download/*.zip
 *.log
 .DS_Store
+
+public/download/SHA256SUMS.txt
+.release-secrets.json
