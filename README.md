@@ -59,6 +59,30 @@ npm run launch -- --app        # 优先用 Chrome/Edge 的应用窗口模式打�
 | `SPAN_SKIP_BUILD` | 设为 `1` 时跳过编译 |
 | `SPAN_APP_WINDOW` | 设为 `1` 时优先使用 Chrome/Edge 应用窗口 |
 
+## 便携版打包与分发
+
+生成可直接发给用户的便携包：
+
+```bash
+npm run package        # 完整版（内置 Node.js 运行时）+ 精简版
+npm run package:full   # 只生成完整版
+npm run package:lite   # 只生成精简版
+```
+
+产物：
+
+- `release/SPAN-0.2.0-portable/` — 完整版目录
+- `release/SPAN-0.2.0-lite/` — 精简版目录
+- `public/download/SPAN-0.2.0-portable-win64.zip` — 完整版下载包
+- `public/download/SPAN-0.2.0-lite-win64.zip` — 精简版下载包
+- `public/download.html` + `public/download.js` — 下载页，启动服务器后访问 `http://127.0.0.1:4173/download.html`
+
+完整版约 32.7 MB，包含 `runtime/node.exe`，用户解压后双击 **`START-SPAN.bat`** 即可运行，无需安装 Node、npm 或编译。精简版约 60 KB，需要系统已安装 Node.js 22.5+。
+
+`public/download/` 下的 zip 和 `release/` 目录属于生成产物，不纳入 Git；重新打包即可恢复。
+
+> 浏览器出于安全限制不能直接运行本地 `.bat` 文件。用户需要先下载并解压 zip，再从资源管理器双击 `START-SPAN.bat`。
+
 ## 手动启动
 
 环境要求：Node.js **22.5+**。
@@ -149,7 +173,7 @@ npm run build
 npm test
 ```
 
-测试覆盖路面寻路、拓扑缓存、自适应迭代、拉压参数、无支撑桥面坍塌、木桁架通关、第二关中央石柱支撑、第三关钢上弦超级跨度，以及存档、成绩排名、非法请求与静态资源安全头。当前共 16 项测试。
+测试覆盖路面寻路、拓扑缓存、自适应迭代、拉压参数、无支撑桥面坍塌、木桁架通关、第二关中央石柱支撑、第三关钢上弦超级跨度，以及存档、成绩排名、非法请求与静态资源安全头。当前共 17 项测试。
 
 > 如果所在环境禁止 Node 测试运行器创建子进程，当前 `npm test` 已使用 `--experimental-test-isolation=none` 单进程模式。
 

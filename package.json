@@ -8,6 +8,9 @@
     "build": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json",
     "start": "node dist/server/server.js",
     "launch": "node scripts/launch.mjs",
+    "package": "node scripts/package-portable.mjs",
+    "package:full": "node scripts/package-portable.mjs --only=full",
+    "package:lite": "node scripts/package-portable.mjs --only=lite",
     "test": "node --test --experimental-test-isolation=none tests/physics.test.mjs tests/server.test.mjs"
   },
   "engines": {

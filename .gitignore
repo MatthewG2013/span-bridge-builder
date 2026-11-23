@@ -10,5 +10,7 @@ data/*.tmp
 playwright-*.png
 shot.png
 tests/.tmp-api/
+release/
+public/download/*.zip
 *.log
 .DS_Store

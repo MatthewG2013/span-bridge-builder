@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -258,16 +259,25 @@ async function serveStatic(
       sendText(response, 404, "Not Found");
       return;
     }
-    const data = await readFile(filePath);
     response.statusCode = 200;
     response.setHeader("Content-Type", MIME_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream");
-    response.setHeader("Content-Length", data.length);
+    response.setHeader("Content-Length", info.size);
     response.setHeader("Cache-Control", "no-cache");
     if (headOnly) {
       response.end();
-    } else {
-      response.end(data);
+      return;
     }
+
+    const stream = createReadStream(filePath);
+    stream.on("error", (error) => {
+      if (!response.headersSent) {
+        sendText(response, 500, "Internal Server Error");
+      } else {
+        response.destroy();
+      }
+      if (verbose) console.error(`[static] ${pathname}`, error);
+    });
+    stream.pipe(response);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       sendText(response, 404, "Not Found");

@@ -65,6 +65,13 @@ test("API persists designs, validates payloads, and ranks results", async (t) =>
     assert.match(await response.text(), /SPAN/);
   });
 
+  await t.test("static HEAD reports content length without a body", async () => {
+    const response = await fetch(`${base}/styles.css`, { method: "HEAD" });
+    assert.equal(response.status, 200);
+    assert.ok(Number(response.headers.get("content-length")) > 1000);
+    assert.equal(await response.text(), "");
+  });
+
   await t.test("invalid design is rejected", async () => {
     const { status, body } = await json(`${base}/api/designs`, {
       method: "POST",

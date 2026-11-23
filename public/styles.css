@@ -1243,6 +1243,19 @@ kbd {
   white-space: nowrap;
 }
 
+.footer-link {
+  margin-right: 5px;
+  color: #7e97aa;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(143, 188, 219, 0.25);
+  transition: 150ms ease;
+}
+
+.footer-link:hover {
+  color: var(--amber-hot);
+  border-bottom-color: rgba(241, 180, 93, 0.5);
+}
+
 .footer-right i {
   width: 4px;
   height: 4px;
