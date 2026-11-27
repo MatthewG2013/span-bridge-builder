@@ -350,14 +350,17 @@ async function createOrUpdateGiteeRelease(owner) {
   );
   if (response.status === 200) {
     const release = await response.json();
-    console.log(`→ Gitee Release 已存在：${TAG}`);
-    return release;
-  }
-  if (response.status !== 404) {
+    if (release && typeof release.id !== "undefined") {
+      console.log(`→ Gitee Release 已存在：${TAG}`);
+      return release;
+    }
+    console.log(`→ Gitee Release 尚不存在，准备创建 ${TAG}`);
+  } else if (response.status !== 404) {
     fail(`查询 Gitee Release 失败：${response.status}`);
   }
+
   console.log(`→ 创建 Gitee Release ${TAG}`);
-  return giteeApi(`/repos/${owner}/${repoName}/releases`, {
+  const created = await giteeApi(`/repos/${owner}/${repoName}/releases`, {
     method: "POST",
     body: {
       tag_name: TAG,
@@ -367,6 +370,10 @@ async function createOrUpdateGiteeRelease(owner) {
       prerelease: "false",
     },
   });
+  if (!created || typeof created.id === "undefined") {
+    fail("Gitee 创建 Release 后没有返回 id，无法上传附件。");
+  }
+  return created;
 }
 
 async function uploadGiteeAssets(owner, releaseId) {
