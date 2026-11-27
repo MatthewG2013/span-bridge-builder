@@ -124,6 +124,7 @@ git([
 ]);
 git([
   "push",
+  "--force",
   `https://x-access-token:${githubToken}@github.com/${githubOwner}/${repoName}.git`,
   `refs/tags/${TAG}`,
 ]);
@@ -136,6 +137,7 @@ git([
 ]);
 git([
   "push",
+  "--force",
   `https://${encodeURIComponent(giteeOwner)}:${encodeURIComponent(giteeToken)}@gitee.com/${giteeOwner}/${repoName}.git`,
   `refs/tags/${TAG}`,
 ]);
