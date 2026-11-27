@@ -215,6 +215,25 @@ async function giteeApi(apiPath, options = {}) {
   return data;
 }
 
+async function giteeJsonApi(apiPath, method, payload) {
+  const url = new URL(`https://gitee.com/api/v5${apiPath}`);
+  url.searchParams.set("access_token", giteeToken);
+  const response = await fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": "SPAN-release",
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  const data = safeJson(text);
+  if (!response.ok) {
+    fail(`Gitee API ${method} ${apiPath} 失败：${response.status} ${errorText(data, text)}`);
+  }
+  return data;
+}
+
 async function ensureGithubRepo(owner) {
   const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, {
     headers: {
@@ -249,6 +268,7 @@ async function ensureGiteeRepo(owner) {
   );
   if (response.ok) {
     console.log(`→ Gitee 仓库已存在：${owner}/${repoName}`);
+    await enforceGiteeVisibility(owner);
     return;
   }
   if (response.status !== 404) {
@@ -264,6 +284,18 @@ async function ensureGiteeRepo(owner) {
       auto_init: "false",
     },
   });
+  await enforceGiteeVisibility(owner);
+}
+
+async function enforceGiteeVisibility(owner) {
+  // Gitee's form parser treats private="false" as truthy; JSON booleans are
+  // required to reliably keep a new repository public.
+  await giteeJsonApi(`/repos/${owner}/${repoName}`, "PATCH", {
+    name: repoName,
+    description,
+    private: isPrivate,
+  });
+  console.log(`→ Gitee 仓库可见性：${isPrivate ? "private" : "public"}`);
 }
 
 function ensureRemote(name, url) {
